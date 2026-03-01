@@ -527,6 +527,7 @@ class VoxelizerWorker(QThread):
         spec_path: str,
         tip_from_top: float,
         max_workers: int,
+        export_obj: bool = False,
     ):
         super().__init__()
         self.model_paths  = model_paths
@@ -534,6 +535,7 @@ class VoxelizerWorker(QThread):
         self.spec_path    = spec_path
         self.tip_from_top = tip_from_top
         self.max_workers  = max_workers
+        self.export_obj   = export_obj
         self._abort       = False
 
     def abort(self) -> None:
@@ -558,6 +560,7 @@ class VoxelizerWorker(QThread):
                         self.output_dir,
                         self.spec_path,
                         self.tip_from_top,
+                        export_obj=self.export_obj,
                     ): mp
                     for mp in self.model_paths
                 }
@@ -1354,6 +1357,14 @@ class SimulationGUI(QMainWindow):
             f"Your system has {_os.cpu_count()} logical cores.")
         pf_lay.addRow("Parallel workers:", self.spin_vox_workers)
 
+        self.chk_export_obj = QCheckBox("Also export as .obj (Wavefront mesh)")
+        self.chk_export_obj.setChecked(False)
+        self.chk_export_obj.setToolTip(
+            "When checked, each voxel grid is also saved as a\n"
+            "Wavefront .obj mesh (marching-cubes isosurface)\n"
+            "alongside the .npz file.")
+        pf_lay.addRow("", self.chk_export_obj)
+
         lay.addWidget(param_group)
 
         # --- Progress bar ---
@@ -1818,6 +1829,7 @@ class SimulationGUI(QMainWindow):
             spec_path=spec,
             tip_from_top=self.spin_vox_tip.value(),
             max_workers=self.spin_vox_workers.value(),
+            export_obj=self.chk_export_obj.isChecked(),
         )
         self._voxelizer_worker.sig.frame_done.connect(
             self._on_voxelize_progress)

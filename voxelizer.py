@@ -323,6 +323,52 @@ def save_npz(
     )
 
 
+def save_obj(
+    voxel_grid: np.ndarray,
+    volume_bounds: np.ndarray,
+    grid_shape: np.ndarray,
+    path: str,
+) -> None:
+    """
+    Convert a boolean voxel grid to a surface mesh and save as
+    Wavefront ``.obj``.
+
+    Uses PyVista's ``ImageData`` + ``contour`` (marching cubes) to
+    produce a smooth isosurface at the 0.5 threshold.  Falls back to
+    a blocky extraction if marching cubes yields an empty mesh (e.g.
+    very sparse grids).
+    """
+    N = int(grid_shape[0])
+    x_lo, x_hi = volume_bounds[0]
+    y_lo, y_hi = volume_bounds[1]
+    z_lo, z_hi = volume_bounds[2]
+    sx = (x_hi - x_lo) / N
+    sy = (y_hi - y_lo) / N
+    sz = (z_hi - z_lo) / N
+
+    grid = pv.ImageData(
+        dimensions=(N + 1, N + 1, N + 1),
+        spacing=(sx, sy, sz),
+        origin=(float(x_lo), float(y_lo), float(z_lo)),
+    )
+    grid.cell_data["voxels"] = voxel_grid.ravel(order="F").astype(np.float32)
+
+    # Marching cubes on cell data → smooth surface
+    surface = grid.cell_data_to_point_data().contour(
+        isosurfaces=[0.5], scalars="voxels"
+    )
+    if surface.n_points == 0:
+        # Fallback: extract occupied cells as surface
+        surface = grid.threshold(0.5, scalars="voxels")
+        surface = surface.extract_surface()
+
+    if surface.n_points == 0:
+        warnings.warn("Voxel grid is empty — OBJ file not written.")
+        return
+
+    pv.save_meshio(path, surface, file_format="obj")
+
+
 # ═════════════════════════════════════════════════════════════════════
 #  SINGLE-TOOL PIPELINE  (fully picklable for ProcessPoolExecutor)
 # ═════════════════════════════════════════════════════════════════════
@@ -332,6 +378,7 @@ def voxelize_single_tool(
     output_dir: str,
     spec_path: str,
     tip_from_top: float = TIP_FROM_TOP,
+    export_obj: bool = False,
 ) -> Dict[str, Any]:
     """
     Full pipeline for one CAD file  →  ``.npz``.
@@ -363,17 +410,24 @@ def voxelize_single_tool(
 
         save_npz(vg, vb, gs, npz_path)
 
+        obj_path = ""
+        if export_obj:
+            obj_path = str(out_dir / f"{tool_name}_voxels.obj")
+            save_obj(vg, vb, gs, obj_path)
+
         n_occ = int(vg.sum())
         pct   = 100.0 * n_occ / vg.size
         dt    = time.perf_counter() - t0
 
+        fmt_extra = f" + OBJ" if export_obj else ""
         return dict(
             tool_name=tool_name,
             output_path=npz_path,
+            obj_path=obj_path,
             success=True,
             message=(
                 f"{tool_name}: {n_occ:,} voxels occupied "
-                f"({pct:.1f} %) in {dt:.1f} s"
+                f"({pct:.1f} %){fmt_extra} in {dt:.1f} s"
             ),
             elapsed_s=dt,
             n_occupied=n_occ,
@@ -437,11 +491,18 @@ def main() -> None:
         "--tip", type=float, default=TIP_FROM_TOP,
         help=f"Tip position (fraction from top, default {TIP_FROM_TOP})",
     )
+    ap.add_argument(
+        "--obj", action="store_true", default=False,
+        help="Also export each voxel grid as a Wavefront .obj mesh",
+    )
     args = ap.parse_args()
 
     if args.model:
         # ── Single-tool mode ─────────────────────────────────────────
-        r = voxelize_single_tool(args.model, args.output, args.spec, args.tip)
+        r = voxelize_single_tool(
+            args.model, args.output, args.spec, args.tip,
+            export_obj=args.obj,
+        )
         print(r["message"])
         sys.exit(0 if r["success"] else 1)
     else:
@@ -459,6 +520,7 @@ def main() -> None:
                 pool.submit(
                     voxelize_single_tool,
                     str(f), args.output, args.spec, args.tip,
+                    export_obj=args.obj,
                 ): f
                 for f in files
             }
