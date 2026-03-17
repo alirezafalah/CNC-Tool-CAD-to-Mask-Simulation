@@ -65,12 +65,12 @@ VFOV_DEG: float = 2.0 * np.degrees(np.arctan(SENSOR_H_MM / (2.0 * FOCAL_LENGTH_M
 HFOV_DEG: float = 2.0 * np.degrees(np.arctan(SENSOR_W_MM / (2.0 * FOCAL_LENGTH_MM)))
 
 # --- Image resolution (4:3 to match sensor aspect ratio) ------------
-IMG_W: int = 1280
-IMG_H: int = 960
+IMG_W: int = 2600
+IMG_H: int = 2128
 
 # --- Real-world setup ------------------------------------------------
 WORKING_DISTANCE_MM: float = 250.0   # Lens-to-object distance (mm)
-TIP_FROM_TOP: float        = 0.80    # Drill tip positioned at 60 % from the top
+TIP_FROM_TOP: float        = 0.86    # Drill tip positioned at 86 % from the top
 
 # --- Multi-threading (image saving is I/O-bound) --------------------
 #     Intel i-series: 8 physical / 16 logical cores.

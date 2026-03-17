@@ -7,5 +7,6 @@
 /drills/*.stl
 
 # Ignore generated render outputs (mask frames)
-/output/
-/output_noisy/
+/synthetic_data/
+
+.pyc

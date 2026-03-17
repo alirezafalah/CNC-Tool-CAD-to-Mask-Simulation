@@ -735,7 +735,7 @@ class SimulationGUI(QMainWindow):
         # --- Output directory ---
         out_group = QGroupBox("Output Directory (clean masks)")
         og_lay = QHBoxLayout(out_group)
-        self.render_out_edit = QLineEdit(str(_SCRIPT_DIR / "output"))
+        self.render_out_edit = QLineEdit(str(_SCRIPT_DIR / "synthetic_data"))
         og_lay.addWidget(self.render_out_edit, stretch=1)
         btn_br = QPushButton("Browse …")
         btn_br.clicked.connect(
@@ -1424,7 +1424,7 @@ class SimulationGUI(QMainWindow):
     def _add_cad_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
             self, "Select CAD Models",
-            str(_SCRIPT_DIR / "drills"),
+            str(_SCRIPT_DIR / "synthetic_data"),
             "CAD Files (*.step *.stp *.stl);;All Files (*)",
         )
         existing = {self.file_list.item(i).text()
