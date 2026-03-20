@@ -9,4 +9,4 @@
 # Ignore generated render outputs (mask frames)
 /synthetic_data/
 
-.pyc
+*.pyc

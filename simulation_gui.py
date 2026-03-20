@@ -328,6 +328,9 @@ class DatasetWorker(QThread):
                     if self._abort:
                         break
 
+                    angle_deg = (360.0 * angle) / n_frames
+                    frame_name = f"{angle_deg:07.2f}_degrees"
+
                     xform = vtk.vtkTransform()
                     xform.RotateZ(float(angle))
                     actor.SetUserTransform(xform)
@@ -336,7 +339,7 @@ class DatasetWorker(QThread):
                     rgb  = plotter.screenshot(return_img=True)
                     mask = RE._to_binary_mask(rgb)
 
-                    clean_path = str(clean_dir / f"mask_{angle:03d}.{ext}")
+                    clean_path = str(clean_dir / f"{frame_name}.{ext}")
                     Image.fromarray(mask, mode="L").save(
                         clean_path, format=img_format)
 
@@ -347,7 +350,7 @@ class DatasetWorker(QThread):
                             n_frames=n_frames,
                         )
                         noisy_path = str(
-                            noisy_dir / f"mask_{angle:03d}.{ext}")
+                            noisy_dir / f"{frame_name}.{ext}")
                         Image.fromarray(noisy, mode="L").save(
                             noisy_path, format=img_format)
 
@@ -735,7 +738,7 @@ class SimulationGUI(QMainWindow):
         # --- Output directory ---
         out_group = QGroupBox("Output Directory (clean masks)")
         og_lay = QHBoxLayout(out_group)
-        self.render_out_edit = QLineEdit(str(_SCRIPT_DIR / "synthetic_data"))
+        self.render_out_edit = QLineEdit(str(_SCRIPT_DIR / "synthetic_data" / "masks"))
         og_lay.addWidget(self.render_out_edit, stretch=1)
         btn_br = QPushButton("Browse …")
         btn_br.clicked.connect(
@@ -786,6 +789,7 @@ class SimulationGUI(QMainWindow):
 
         self.combo_fmt = QComboBox()
         self.combo_fmt.addItems(["TIFF", "PNG"])
+        self.combo_fmt.setCurrentText("PNG")
         form.addRow("Image Format:", self.combo_fmt)
 
         lay.addWidget(cam_group)
@@ -832,7 +836,7 @@ class SimulationGUI(QMainWindow):
         self.chk_noise = QCheckBox(
             "Apply current noise preset during generation "
             "(single noise_NNN folder)")
-        self.chk_noise.setChecked(True)
+        self.chk_noise.setChecked(False)
         self.chk_noise.setToolTip(
             "Applies the noise preset currently selected above\n"
             "(or your custom values) to each rendered frame,\n"
