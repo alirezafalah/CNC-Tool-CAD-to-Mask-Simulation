@@ -221,18 +221,24 @@ class DatasetWorker(QThread):
         self,
         model_paths: List[str],
         clean_output_dir: str,
+        realistic_output_dir: str,
         noisy_output_dir: str,
         render_cfg: Dict[str, Any],
         noise_cfgs: List[Dict[str, Any]],
         apply_noise: bool,
+        generate_masks: bool = True,
+        generate_realistic: bool = True,
     ):
         super().__init__()
         self.model_paths      = model_paths
         self.clean_output_dir = clean_output_dir
+        self.realistic_output_dir = realistic_output_dir
         self.noisy_output_dir = noisy_output_dir
         self.render_cfg       = render_cfg
         self.noise_cfgs       = noise_cfgs      # list of 1+ noise configs
         self.apply_noise      = apply_noise
+        self.generate_masks   = generate_masks
+        self.generate_realistic = generate_realistic
         self._abort           = False
 
     def abort(self) -> None:
@@ -297,6 +303,11 @@ class DatasetWorker(QThread):
                                      window_size=[img_w, img_h])
                 plotter.set_background("black")
                 plotter.disable_anti_aliasing()
+                
+                # We will add a directional light to make metallic reflection visible
+                light = pv.Light(position=(10, -10, 10), focal_point=(0, 0, 0), color='white', intensity=0.8)
+                plotter.add_light(light)
+                
                 actor = plotter.add_mesh(
                     mesh, color="white",
                     ambient=1.0, diffuse=0.0, specular=0.0,
@@ -306,6 +317,9 @@ class DatasetWorker(QThread):
 
                 clean_dir = Path(self.clean_output_dir) / tool_name
                 clean_dir.mkdir(parents=True, exist_ok=True)
+                
+                realistic_dir = Path(self.realistic_output_dir) / tool_name
+                realistic_dir.mkdir(parents=True, exist_ok=True)
 
                 # Plan dent events for each noise preset
                 run_data: List[Tuple[Path, list]] = []
@@ -335,24 +349,42 @@ class DatasetWorker(QThread):
                     xform.RotateZ(float(angle))
                     actor.SetUserTransform(xform)
 
-                    plotter.render()
-                    rgb  = plotter.screenshot(return_img=True)
-                    mask = RE._to_binary_mask(rgb)
+                    # 1. Realistic render
+                    if self.generate_realistic:
+                        actor.prop.lighting = True
+                        actor.prop.color = "silver"
+                        actor.prop.specular = 0.9
+                        actor.prop.specular_power = 60
+                        actor.prop.diffuse = 0.5
+                        actor.prop.ambient = 0.2
+                        plotter.render()
+                        rgb_real = plotter.screenshot(return_img=True)
+                        
+                        real_path = str(realistic_dir / f"{frame_name}.{ext}")
+                        Image.fromarray(rgb_real).save(real_path, format=img_format)
 
-                    clean_path = str(clean_dir / f"{frame_name}.{ext}")
-                    Image.fromarray(mask, mode="L").save(
-                        clean_path, format=img_format)
+                    # 2. Binary mask render
+                    if self.generate_masks:
+                        actor.prop.lighting = False
+                        actor.prop.color = "white"
+                        plotter.render()
+                        rgb_mask = plotter.screenshot(return_img=True)
+                        mask = RE._to_binary_mask(rgb_mask)
 
-                    # Apply each noise preset to same clean mask
-                    for (noisy_dir, dent_events) in run_data:
-                        noisy = NI.inject_noise_frame(
-                            mask, dent_events, angle,
-                            n_frames=n_frames,
-                        )
-                        noisy_path = str(
-                            noisy_dir / f"{frame_name}.{ext}")
-                        Image.fromarray(noisy, mode="L").save(
-                            noisy_path, format=img_format)
+                        clean_path = str(clean_dir / f"{frame_name}.{ext}")
+                        Image.fromarray(mask, mode="L").save(
+                            clean_path, format=img_format)
+
+                        # Apply each noise preset to same clean mask
+                        for (noisy_dir, dent_events) in run_data:
+                            noisy = NI.inject_noise_frame(
+                                mask, dent_events, angle,
+                                n_frames=n_frames,
+                            )
+                            noisy_path = str(
+                                noisy_dir / f"{frame_name}.{ext}")
+                            Image.fromarray(noisy, mode="L").save(
+                                noisy_path, format=img_format)
 
                     self.sig.frame_done.emit(angle + 1, n_frames)
 
@@ -736,14 +768,33 @@ class SimulationGUI(QMainWindow):
         lay.addWidget(file_group)
 
         # --- Output directory ---
-        out_group = QGroupBox("Output Directory (clean masks)")
-        og_lay = QHBoxLayout(out_group)
+        out_group = QGroupBox("Output Directories")
+        og_lay = QFormLayout(out_group)
+        
+        # Mask Output
+        mask_row = QHBoxLayout()
+        self.chk_gen_masks = QCheckBox()
+        self.chk_gen_masks.setChecked(True)
+        mask_row.addWidget(self.chk_gen_masks)
         self.render_out_edit = QLineEdit(str(_SCRIPT_DIR / "synthetic_data" / "masks"))
-        og_lay.addWidget(self.render_out_edit, stretch=1)
-        btn_br = QPushButton("Browse …")
-        btn_br.clicked.connect(
-            lambda: self._browse_dir(self.render_out_edit))
-        og_lay.addWidget(btn_br)
+        mask_row.addWidget(self.render_out_edit, stretch=1)
+        btn_br_mask = QPushButton("Browse …")
+        btn_br_mask.clicked.connect(lambda: self._browse_dir(self.render_out_edit))
+        mask_row.addWidget(btn_br_mask)
+        og_lay.addRow("Masks (.png):", mask_row)
+        
+        # Realistic Output
+        real_row = QHBoxLayout()
+        self.chk_gen_real = QCheckBox()
+        self.chk_gen_real.setChecked(True)
+        real_row.addWidget(self.chk_gen_real)
+        self.render_realistic_out_edit = QLineEdit(str(_SCRIPT_DIR / "synthetic_data" / "realistic"))
+        real_row.addWidget(self.render_realistic_out_edit, stretch=1)
+        btn_br_real = QPushButton("Browse …")
+        btn_br_real.clicked.connect(lambda: self._browse_dir(self.render_realistic_out_edit))
+        real_row.addWidget(btn_br_real)
+        og_lay.addRow("Realistic (.png):", real_row)
+        
         lay.addWidget(out_group)
 
         # --- Camera / render params ---
@@ -1911,10 +1962,13 @@ class SimulationGUI(QMainWindow):
         self._worker = DatasetWorker(
             model_paths=model_paths,
             clean_output_dir=self.render_out_edit.text(),
+            realistic_output_dir=self.render_realistic_out_edit.text(),
             noisy_output_dir=self.noisy_out_edit.text(),
             render_cfg=rc,
             noise_cfgs=noise_cfgs,
             apply_noise=apply_noise,
+            generate_masks=self.chk_gen_masks.isChecked(),
+            generate_realistic=self.chk_gen_real.isChecked(),
         )
         self._worker.sig.tool_started.connect(self._on_tool_started)
         self._worker.sig.frame_done.connect(self._on_frame_done)
